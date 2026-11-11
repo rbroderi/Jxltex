@@ -1,0 +1,17 @@
+[package]
+name = "jxl2pdf"
+version = "1.0.0"
+edition = "2021"
+description = "Converts a JPEG XL image to a PDF that LaTeX can include"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/rbroderi/Jxltex"
+publish = false
+
+[dependencies]
+jxl-oxide = { version = "0.12", features = ["moxcms"] }
+miniz_oxide = "0.9"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

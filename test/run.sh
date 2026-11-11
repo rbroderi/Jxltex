@@ -1,40 +1,48 @@
 #!/bin/sh
-# Typesets test.tex with every engine that is installed, in test/out/ENGINE, and checks
-# that the PDF holds every image. Run from the top directory: sh test/run.sh
-# It needs jxl2pdf built there (make), and pdfimages (poppler) for the check.
+# Typesets test.tex with every LaTeX engine that is installed, in test/out/ENGINE, first
+# with shell escape (which runs jxl2pdf) and then without (which reuses its output).
+#   sh test/run.sh [directory that holds jxl2pdf]
+# Without the argument, jxl2pdf comes from target/release or the PATH. If pdfimages
+# (poppler) is installed, the script also checks that the PDF holds every image.
+# Set ENGINES to try only some, e.g. ENGINES="pdflatex lualatex".
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-PATH="$here/..:$PATH"
-TEXINPUTS="$here/..:${TEXINPUTS:-}"
-export PATH TEXINPUTS
-command -v jxl2pdf >/dev/null || { echo "jxl2pdf not found: run make first" >&2; exit 1; }
+if [ $# -gt 0 ]; then
+	PATH="$(cd "$1" && pwd):$PATH"
+elif [ -d "$here/../target/release" ]; then
+	PATH="$here/../target/release:$PATH"
+fi
+export PATH
+command -v jxl2pdf >/dev/null || { echo "jxl2pdf not found: run cargo build --release first" >&2; exit 1; }
+jxl2pdf -V
 
 status=0
 ran=0
-for engine in pdflatex lualatex xelatex; do
+for engine in ${ENGINES:-pdflatex lualatex xelatex}; do
 	command -v "$engine" >/dev/null || { echo "$engine: not installed, skipped"; continue; }
 	ran=$((ran + 1))
 	dir="$here/out/$engine"
 	rm -rf "$dir"
 	mkdir -p "$dir"
-	cp "$here"/*.jxl "$here/test.tex" "$dir"
+	cp "$here"/*.jxl "$here/test.tex" "$here/../jxl.sty" "$dir"
 	if ! (cd "$dir" && "$engine" -shell-escape -interaction=nonstopmode -halt-on-error test.tex >run.log 2>&1); then
-		echo "$engine: FAILED, see $dir/run.log"
+		echo "$engine: FAILED"
+		tail -n 40 "$dir/run.log"
 		status=1
 		continue
 	fi
-	# without shell escape, the converted files are reused
 	if ! (cd "$dir" && "$engine" -no-shell-escape -interaction=nonstopmode -halt-on-error test.tex >run2.log 2>&1); then
-		echo "$engine: FAILED without shell escape, see $dir/run2.log"
+		echo "$engine: FAILED without shell escape"
+		tail -n 40 "$dir/run2.log"
 		status=1
 		continue
 	fi
 	if command -v pdfimages >/dev/null; then
-		# 8 colour images (photo twice) and 2 soft masks
+		# 10 colour images (photo twice) and 2 soft masks
 		n=$(pdfimages -list "$dir/test.pdf" | awk 'NR > 2 && $3 == "image"' | wc -l)
 		m=$(pdfimages -list "$dir/test.pdf" | awk 'NR > 2 && $3 == "smask"' | wc -l)
-		if [ "$n" -ne 8 ] || [ "$m" -ne 2 ]; then
-			echo "$engine: FAILED, $n images and $m soft masks in test.pdf, expected 8 and 2"
+		if [ "$n" -ne 10 ] || [ "$m" -ne 2 ]; then
+			echo "$engine: FAILED, $n images and $m soft masks in test.pdf, expected 10 and 2"
 			status=1
 			continue
 		fi

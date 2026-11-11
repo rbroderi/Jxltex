@@ -1,0 +1,51 @@
+# Builds jxl2pdf and checks its output on every push and pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component clippy && rustup default stable
+      - name: Lint
+        if: runner.os == 'Linux'
+        run: cargo clippy --locked -- -D warnings
+      - name: Build
+        run: cargo build --release --locked
+      - name: Check the pixels in the PDFs
+        run: python test/check.py target/release/jxl2pdf
+
+  latex:
+    name: pdfLaTeX, LuaLaTeX and XeLaTeX
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install TeX Live and poppler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            texlive-latex-base texlive-latex-recommended texlive-luatex texlive-xetex poppler-utils
+      - name: Build
+        run: cargo build --release --locked
+      - name: Typeset the test document with each engine
+        run: sh test/run.sh

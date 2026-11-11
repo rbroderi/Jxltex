@@ -1,0 +1,8 @@
+# Static builds: the Windows binary carries its C runtime, and the Linux release
+# binaries are built for musl (see .github/workflows/release.yml).
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
+
+# Lets an x86-64 Linux machine link the ARM binary without a cross toolchain.
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"

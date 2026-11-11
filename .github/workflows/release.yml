@@ -1,0 +1,151 @@
+# Builds the static jxl2pdf binaries, publishes them as a GitHub release, and then tests
+# the published files on every platform (test-release.yml).
+#
+# The version comes from Cargo.toml. To release it, either run this workflow by hand
+# (Actions > Release > Run workflow), which creates the tag vVERSION on the commit it
+# runs on, or push that tag yourself.
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86_64-linux
+            os: ubuntu-latest
+            targets: x86_64-unknown-linux-musl
+            archive: gztar
+          - name: aarch64-linux # cross-linked with rust-lld (.cargo/config.toml); run in the test job
+            os: ubuntu-latest
+            targets: aarch64-unknown-linux-musl
+            archive: gztar
+            cannot-run: true
+          - name: macos # one binary for Apple Silicon and Intel
+            os: macos-latest
+            targets: aarch64-apple-darwin x86_64-apple-darwin
+            archive: gztar
+          - name: x86_64-windows
+            os: windows-latest
+            targets: x86_64-pc-windows-msvc
+            archive: zip
+    defaults:
+      run:
+        shell: bash
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Read the version
+        run: echo "VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)" >> "$GITHUB_ENV"
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add ${{ matrix.targets }}
+      - name: Build
+        run: |
+          for target in ${{ matrix.targets }}; do
+            cargo build --release --locked --target "$target"
+          done
+      - name: Collect the files
+        run: |
+          dir="dist/jxl2pdf-$VERSION-${{ matrix.name }}"
+          mkdir -p "$dir"
+          case "${{ matrix.name }}" in
+            macos)
+              lipo -create -output "$dir/jxl2pdf" \
+                target/aarch64-apple-darwin/release/jxl2pdf target/x86_64-apple-darwin/release/jxl2pdf
+              lipo -info "$dir/jxl2pdf" ;;
+            *windows)
+              cp "target/${{ matrix.targets }}/release/jxl2pdf.exe" "$dir/" ;;
+            *)
+              cp "target/${{ matrix.targets }}/release/jxl2pdf" "$dir/" ;;
+          esac
+          cp jxl.sty README.md LICENSE "$dir/"
+          echo "DIR=$dir" >> "$GITHUB_ENV"
+      - name: Check the pixels in the PDFs
+        if: ${{ !matrix.cannot-run }}
+        run: |
+          "$DIR/jxl2pdf" -V
+          python test/check.py "$DIR/jxl2pdf"
+      - name: Make the archive
+        run: python -c "import shutil, sys; shutil.make_archive(sys.argv[1], sys.argv[2], 'dist', sys.argv[3])" "jxl2pdf-$VERSION-${{ matrix.name }}" "${{ matrix.archive }}" "jxl2pdf-$VERSION-${{ matrix.name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            jxl2pdf-*.tar.gz
+            jxl2pdf-*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Work out the tag
+        id: tag
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          tag="v$version"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "$tag" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Write the checksums and the notes
+        run: |
+          cp jxl.sty assets/
+          (cd assets && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+          cat > notes.md <<'EOF'
+          `\includegraphics` for JPEG XL files in pdfLaTeX, LuaLaTeX and XeLaTeX.
+
+          Download the archive for your system, put `jxl2pdf` on your `PATH` and `jxl.sty`
+          where LaTeX finds it, then typeset with `-shell-escape`. The
+          [README](https://github.com/${{ github.repository }}#readme) has the details.
+
+          | File | System |
+          |---|---|
+          | `jxl2pdf-VERSION-x86_64-linux.tar.gz` | Linux, x86-64 (static) |
+          | `jxl2pdf-VERSION-aarch64-linux.tar.gz` | Linux, ARM64 (static) |
+          | `jxl2pdf-VERSION-macos.tar.gz` | macOS 11 or later, Apple Silicon and Intel |
+          | `jxl2pdf-VERSION-x86_64-windows.zip` | Windows, x86-64 (static) |
+          EOF
+          sed -i -e 's/^          //' -e "s/VERSION/${{ steps.tag.outputs.version }}/" notes.md
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.tag.outputs.tag }}" assets/* \
+            --target "$GITHUB_SHA" \
+            --title "Jxltex ${{ steps.tag.outputs.version }}" \
+            --notes-file notes.md
+
+  test:
+    name: Test the release
+    needs: publish
+    uses: ./.github/workflows/test-release.yml
+    with:
+      tag: ${{ needs.publish.outputs.tag }}

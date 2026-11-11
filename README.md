@@ -5,7 +5,8 @@
 None of the three engines reads JPEG XL. Jxltex adds it from the outside, the way the
 `epstopdf` package adds EPS to pdfLaTeX:
 
-- `jxl2pdf` decodes a `.jxl` file and writes a PDF, one page the size of the image.
+- `jxl2pdf`, a small program with no dependencies, decodes a `.jxl` file and writes a
+  PDF, one page the size of the image.
 - `jxl.sty` runs `jxl2pdf` on each `.jxl` file you include, then includes the PDF. All
   three engines include PDF themselves, so one package serves them all.
 
@@ -24,19 +25,27 @@ pdflatex -shell-escape paper.tex     # or lualatex, or xelatex
 
 ## Setting up
 
-Build the converter and put it on your `PATH`:
+1. Get `jxl2pdf`. Download the archive for your system from the
+   [latest release](https://github.com/rbroderi/Jxltex/releases/latest), unpack it, and
+   put `jxl2pdf` (`jxl2pdf.exe` on Windows) in a directory on your `PATH`.
 
-```sh
-make                 # builds ./jxl2pdf with cc; needs only a C99 compiler
-```
+   | Archive | System |
+   |---|---|
+   | `jxl2pdf-…-x86_64-linux.tar.gz` | Linux, x86-64 |
+   | `jxl2pdf-…-aarch64-linux.tar.gz` | Linux, ARM64 |
+   | `jxl2pdf-…-macos.tar.gz` | macOS 11 or later, Apple Silicon and Intel |
+   | `jxl2pdf-…-x86_64-windows.zip` | Windows, x86-64 |
 
-With Open Watcom, `wmake -f watcom.mak nt` builds `jxl2pdfw.exe` (Win32) and
-`wmake -f watcom.mak dos` builds `jxl2pdf.exe` (DOS/32A). Rename `jxl2pdfw.exe` to
-`jxl2pdf.exe`, or pass `converter=jxl2pdfw` to the package.
+   The binaries are statically linked: there is nothing else to install. On macOS,
+   a downloaded binary may be quarantined; `xattr -d com.apple.quarantine jxl2pdf`
+   clears that.
 
-Then put `jxl.sty` where LaTeX finds it: next to your document, or in
-`~/texmf/tex/latex/jxl/`. It needs `graphicx`, `pdftexcmds` and `kvoptions`, which
-every TeX distribution has.
+   Or build it yourself with [Rust](https://rustup.rs): `cargo build --release` leaves
+   it in `target/release`.
+
+2. Put `jxl.sty`, which is in the archive too, where LaTeX finds it: next to your
+   document, or in `~/texmf/tex/latex/jxl/`. It needs `graphicx`, `pdftexcmds` and
+   `kvoptions`, which every TeX distribution has.
 
 ## How the conversion works
 
@@ -54,10 +63,14 @@ convert by hand:
 jxl2pdf photo.jxl photo-jxl-converted-to.pdf
 ```
 
-The PDF holds the decoded pixels losslessly (Flate with PNG row filters), as greyscale
-when every pixel is grey and RGB otherwise. Transparency becomes a PDF soft mask, so
-what is under the image shows through. Expect the PDF to be somewhat larger than a PNG
-of the same image, and several times larger than a lossy `.jxl`.
+The PDF holds the decoded pixels losslessly, at 8 bits a sample (Flate with PNG row
+filters). Transparency becomes a PDF soft mask, so what is under the image shows
+through. Expect the PDF to be about the size of a PNG of the same image, and several
+times larger than a lossy `.jxl`.
+
+Colour: an sRGB image is written as DeviceRGB, or DeviceGray when every pixel is grey.
+An image in another colour space, such as Display P3, keeps its samples and gets an ICC
+profile that describes them. CMYK and HDR (PQ, HLG) images are converted to sRGB.
 
 ## Options
 
@@ -78,45 +91,52 @@ delete the converted PDFs.
 
 ```
 jxl2pdf [-a] [-r DPI] input.jxl output.pdf
+jxl2pdf -V
 ```
 
 ## Limits
 
-- The decoder is J40 as patched by jxlOpenWatcom, with the limits listed in
-  [its README](https://github.com/rbroderi/jxlOpenWatcom#what-decodes): lossless images decode exactly, many lossy ones decode but without libjxl's
-  restoration filters, and some files (small lossy images, cjxl effort 1, patches,
-  splines, progressive) fail. A file that fails stops LaTeX with an error; nothing
-  wrong is put on the page. Output is 8 bits a sample.
-- Colours are written as DeviceRGB or DeviceGray. An ICC profile or a non-sRGB colour
-  space in the `.jxl` is ignored.
+- Output is 8 bits a sample, whatever the file holds.
 - Only the PDF-producing drivers are supported: pdfLaTeX and LuaLaTeX in PDF mode, and
   XeLaTeX. With `latex` + `dvips` the package warns and does nothing.
 - A `.jxl` file has to be reachable by the name LaTeX builds from the current
   directory and `\graphicspath`. Files that only `TEXINPUTS` finds aren't converted.
 - If you call `\DeclareGraphicsExtensions` after loading the package, include `.jxl`
   in the list, or give the extension in `\includegraphics`.
-
-## Testing
-
-`make check` typesets `test/test.tex` with each of the three engines that is
-installed, first with shell escape and then without, and checks with poppler's
-`pdfimages` that every image is in the result.
-
-Tested with TeX Live 2023 (pdfTeX 1.40.25, LuaHBTeX 1.17.0, XeTeX 0.999995) on Linux,
-with `jxl2pdf` built by GCC. Images were written by cjxl 0.7: the pixels in the PDFs
-match the source PNGs exactly for lossless RGB, RGBA, grey and grey-with-alpha files
-at efforts 2, 4 and 7, and for a three-frame animation. The Open Watcom targets in
-`watcom.mak` have not been built or run yet.
+- Not tested, for want of files: CMYK images, and images whose colours are stored
+  multiplied by alpha.
 
 ## The decoder
 
-`j40.h` is copied unchanged from [jxlOpenWatcom](https://github.com/rbroderi/jxlOpenWatcom)
-at commit `f12d841`. That is a fork of [J40](https://github.com/lifthrasiir/j40) by Kang
-Seonghoon, with fixes for greyscale, animation and prefix codes. To update it, copy the
-newer `j40.h` over this one.
+`jxl2pdf` is written in Rust and decodes with
+[jxl-oxide](https://github.com/tirr-c/jxl-oxide), a JPEG XL decoder in pure Rust. With
+no C code in it, static binaries for every platform come out of one `cargo build` each.
+
+## Testing
+
+```sh
+cargo build --release
+python3 test/check.py target/release/jxl2pdf   # the pixels jxl2pdf writes
+sh test/run.sh                                 # \includegraphics in each engine
+```
+
+`test/check.py` converts the images in `test/`, reads the pixels back out of the PDFs
+and compares them with the PNGs the `.jxl` files were made from. It covers lossless
+RGB, RGBA and grey with alpha, an animation, a Display P3 image and a lossy image
+(whose pixels aren't compared). `test/run.sh` typesets `test/test.tex` with each of the
+three engines that is installed, first with shell escape and then without.
+
+Three workflows run these on GitHub:
+
+- **CI** on every push: builds and checks on Linux, macOS and Windows, and runs the
+  three engines on Linux.
+- **Release** builds the four archives, publishes them as release `v` + the version in
+  `Cargo.toml`, and then runs the third workflow. Start it from the Actions tab, or
+  push the tag.
+- **Test release** downloads a published release and runs both tests with it on
+  Linux (x86-64 and ARM64), macOS (Apple Silicon and Intel) and Windows.
 
 ## License
 
 Jxltex is licensed under the GNU General Public License, version 3 or (at your option)
-any later version. See [`LICENSE`](LICENSE). Upstream J40 is public domain, or MIT No
-Attribution where that is not possible; see [`LICENSE-J40.txt`](LICENSE-J40.txt).
+any later version. See [`LICENSE`](LICENSE).

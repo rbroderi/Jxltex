@@ -1,0 +1,115 @@
+# Downloads a published release and tests it on each platform: the pixels jxl2pdf writes,
+# and \includegraphics in pdfLaTeX, LuaLaTeX and XeLaTeX.
+#
+# release.yml runs this after publishing. To test a release again, run it by hand
+# (Actions > Test release > Run workflow).
+name: Test release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release to test, such as v1.0.0 (empty: the latest)'
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.asset }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: x86_64-linux
+          - os: ubuntu-24.04-arm
+            asset: aarch64-linux
+          - os: macos-latest # Apple Silicon
+            asset: macos
+          - os: macos-15-intel
+            asset: macos
+          - os: windows-latest
+            asset: x86_64-windows
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Find the release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ]; then
+            tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          fi
+          echo "Testing release $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4 # the tests as they were at the release
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Download and unpack the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ steps.release.outputs.tag }}" --dir download \
+            --pattern 'jxl2pdf-*-${{ matrix.asset }}.*' --pattern SHA256SUMS
+          ls -l download
+          python - <<'EOF'
+          import glob, hashlib, shutil
+          sums = dict(reversed(line.split()) for line in open("download/SHA256SUMS"))
+          (archive,) = glob.glob("download/jxl2pdf-*")
+          name = archive.replace("\\", "/").split("/")[-1]
+          digest = hashlib.sha256(open(archive, "rb").read()).hexdigest()
+          assert sums[name] == digest, "checksum of %s does not match SHA256SUMS" % name
+          shutil.unpack_archive(archive, "release")
+          EOF
+          echo "BIN=$(echo release/jxl2pdf-*)" >> "$GITHUB_ENV"
+      - name: Show the binary
+        run: |
+          ls -l "$BIN"
+          "$BIN/jxl2pdf" -V
+          case "$RUNNER_OS" in
+            Linux)
+              if ldd "$BIN/jxl2pdf" 2>&1 | grep -q '=>'; then
+                echo "::error::jxl2pdf is not statically linked"
+                ldd "$BIN/jxl2pdf"
+                exit 1
+              fi ;;
+            macOS)
+              lipo -info "$BIN/jxl2pdf"
+              otool -L "$BIN/jxl2pdf" ;;
+          esac
+      - name: Check the pixels in the PDFs
+        run: python test/check.py "$BIN/jxl2pdf"
+      - name: Install TeX Live
+        uses: TeX-Live/setup-texlive-action@v4
+        with:
+          packages: >-
+            scheme-basic
+            xetex
+            graphics
+            graphics-def
+            pdftexcmds
+            kvoptions
+            kvsetkeys
+            ltxcmds
+            infwarerr
+            iftex
+            epstopdf-pkg
+      - name: Typeset the test document with each engine
+        run: |
+          cp "$BIN/jxl.sty" jxl.sty # the package as released
+          sh test/run.sh "$BIN"

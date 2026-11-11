@@ -1,7 +1,7 @@
 %% jxl.sty: \includegraphics for JPEG XL files in pdfLaTeX, LuaLaTeX and XeLaTeX.
 %%
 %% None of the engines reads JPEG XL, so this package converts each .jxl file to a PDF
-%% with jxl2pdf (built from jxl2pdf.c, next to this file) the first time it is included
+%% with jxl2pdf (see the README) the first time it is included
 %% and whenever it changes, and includes the PDF. Running the converter needs
 %% shell escape (-shell-escape); once the converted files exist, it doesn't.
 %%
@@ -120,7 +120,7 @@
           \space\space\JXL@command\MessageBreak
           Is \JXL@converter\space on the PATH, and is shell escape unrestricted\MessageBreak
           (-shell-escape)? Run the command in a terminal to see its message.\MessageBreak
-          jxl2pdf doesn't decode every JPEG XL file.}%
+          It also says why a file can't be decoded.}%
       \fi
     \fi
   \fi
