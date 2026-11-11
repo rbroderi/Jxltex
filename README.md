@@ -1,14 +1,7 @@
 # Jxltex
 
-`\includegraphics` for `.jxl` files in pdfLaTeX, LuaLaTeX and XeLaTeX.
-
-None of the three engines reads JPEG XL. Jxltex adds it from the outside, the way the
-`epstopdf` package adds EPS to pdfLaTeX:
-
-- `jxl2pdf`, a small program with no dependencies, decodes a `.jxl` file and writes a
-  PDF, one page the size of the image.
-- `jxl.sty` runs `jxl2pdf` on each `.jxl` file you include, then includes the PDF. All
-  three engines include PDF themselves, so one package serves them all.
+Jxltex lets you use JPEG XL images in LaTeX documents: `\includegraphics{photo.jxl}`
+works in pdfLaTeX, LuaLaTeX and XeLaTeX.
 
 ```latex
 \documentclass{article}
@@ -23,39 +16,117 @@ None of the three engines reads JPEG XL. Jxltex adds it from the outside, the wa
 pdflatex -shell-escape paper.tex     # or lualatex, or xelatex
 ```
 
-## Setting up
+## What it is
 
-1. Get `jxl2pdf`. Download the archive for your system from the
-   [latest release](https://github.com/rbroderi/Jxltex/releases/latest), unpack it, and
-   put `jxl2pdf` (`jxl2pdf.exe` on Windows) in a directory on your `PATH`.
+The TeX engines read only a few image formats themselves: PDF, PNG and JPEG. Every
+other format reaches LaTeX through a package that runs a converter while the document
+is typeset. Jxltex is one of these:
 
-   | Archive | System |
-   |---|---|
-   | `jxl2pdf-…-x86_64-linux.tar.gz` | Linux, x86-64 |
-   | `jxl2pdf-…-aarch64-linux.tar.gz` | Linux, ARM64 |
-   | `jxl2pdf-…-macos.tar.gz` | macOS 11 or later, Apple Silicon and Intel |
-   | `jxl2pdf-…-x86_64-windows.zip` | Windows, x86-64 |
+| Package | Adds | By running |
+|---|---|---|
+| [`epstopdf`](https://ctan.org/pkg/epstopdf-pkg) | EPS in pdfLaTeX | the `epstopdf` script (Ghostscript) |
+| [`svg`](https://ctan.org/pkg/svg) | SVG | Inkscape |
+| [`minted`](https://ctan.org/pkg/minted) | highlighted code | Pygments |
+| **Jxltex** (`jxl.sty`) | JPEG XL | `jxl2pdf`, which comes with it |
 
-   The binaries are statically linked: there is nothing else to install. On macOS,
-   a downloaded binary may be quarantined; `xattr -d com.apple.quarantine jxl2pdf`
-   clears that.
+It is modelled on `epstopdf`, and if you have used that package you know how this one
+behaves. `epstopdf` turns `figure.eps` into `figure-eps-converted-to.pdf` the first
+time the figure is included, and includes that PDF from then on. `jxl.sty` does the
+same for `photo.jxl` and `photo-jxl-converted-to.pdf`, with the same `outdir` and
+`suffix` options.
 
-   Or build it yourself with [Rust](https://rustup.rs): `cargo build --release` leaves
-   it in `target/release`.
+Two things differ from `epstopdf`:
 
-2. Put `jxl.sty`, which is in the archive too, where LaTeX finds it: next to your
-   document, or in `~/texmf/tex/latex/jxl/`. It needs `graphicx`, `pdftexcmds` and
-   `kvoptions`, which every TeX distribution has.
+- **The converter comes with the package.** `epstopdf` needs Ghostscript; `jxl2pdf` is
+  one statically linked program with nothing to install beside it.
+- **You have to allow shell escape.** TeX Live lets `epstopdf` run in its default,
+  restricted mode, because it is on TeX Live's list of trusted programs. `jxl2pdf` is
+  not on that list, so run LaTeX with `-shell-escape` (`minted` and `svg` need the
+  same).
 
-## How the conversion works
+## Installing
+
+There are two files to install: the program `jxl2pdf` and the package `jxl.sty`. Both
+are in the archive for your system on the
+[latest release](https://github.com/rbroderi/Jxltex/releases/latest) page:
+
+| Archive | System |
+|---|---|
+| `jxl2pdf-…-x86_64-linux.tar.gz` | Linux, x86-64 |
+| `jxl2pdf-…-aarch64-linux.tar.gz` | Linux, ARM64 |
+| `jxl2pdf-…-macos.tar.gz` | macOS 11 or later, Apple Silicon and Intel |
+| `jxl2pdf-…-x86_64-windows.zip` | Windows, x86-64 |
+
+### Linux and macOS
+
+```sh
+tar -xzf jxl2pdf-*.tar.gz
+cd jxl2pdf-*/
+
+# 1. the program, somewhere on your PATH
+sudo install -m 755 jxl2pdf /usr/local/bin/
+
+# 2. the package, in your personal TeX tree
+dir="$(kpsewhich -var-value TEXMFHOME)/tex/latex/jxl"
+mkdir -p "$dir" && cp jxl.sty "$dir"
+```
+
+Without `sudo`, any directory on your `PATH` does, such as `~/.local/bin`.
+
+macOS marks downloaded programs as quarantined and refuses to run them. Clear the mark
+once: `xattr -d com.apple.quarantine /usr/local/bin/jxl2pdf`.
+
+### Windows
+
+1. Unpack the `.zip` (right-click, *Extract All*).
+2. Put `jxl2pdf.exe` in a folder that is on your `PATH`. To make one: create
+   `C:\Tools`, move `jxl2pdf.exe` there, then search the Start menu for *Edit
+   environment variables for your account*, edit `Path` and add `C:\Tools`. Open a new
+   terminal afterwards.
+3. Put `jxl.sty` in your personal TeX tree:
+   - TeX Live: run `kpsewhich -var-value TEXMFHOME`, and copy `jxl.sty` to
+     `tex\latex\jxl\` under the folder it prints (create the folders).
+   - MiKTeX: copy it to `tex\latex\jxl\` under a folder of your own, add that folder
+     in MiKTeX Console under *Settings > Directories*, and click *Refresh file name
+     database*.
+
+### Checking, and other ways to install
+
+```sh
+jxl2pdf -V            # prints: jxl2pdf 1.0.0
+kpsewhich jxl.sty     # prints where LaTeX finds the package
+```
+
+- **One document only:** put `jxl.sty` next to the `.tex` file; it then needs no TeX
+  tree. `jxl2pdf` can sit there too if you load the package with
+  `\usepackage[converter=./jxl2pdf]{jxl}`.
+- **From source:** with [Rust](https://rustup.rs) installed, `cargo install --git
+  https://github.com/rbroderi/Jxltex` builds `jxl2pdf` and puts it in `~/.cargo/bin`.
+  `jxl.sty` is in the repository.
+- **Dependencies:** `jxl.sty` needs `graphicx`, `pdftexcmds` and `kvoptions`, which
+  every TeX distribution has. `jxl2pdf` needs nothing.
+
+### Running LaTeX
+
+Add `-shell-escape` to the command your editor or build tool runs:
+
+```sh
+pdflatex -shell-escape paper.tex
+latexmk -pdf -shell-escape paper.tex
+```
+
+In TeXstudio, TeXworks, VS Code's LaTeX Workshop and the like, it goes in the
+settings where the `pdflatex`/`lualatex`/`xelatex` command is defined.
+
+## How it works
 
 `photo.jxl` becomes `photo-jxl-converted-to.pdf`, next to `photo.jxl`. The package
 converts when that file is missing or older than the `.jxl`, so each image is
 converted once, not on every run.
 
-Running the converter needs shell escape (`-shell-escape`). Without it the package
-uses the converted files that are already there, and stops with an error if one is
-missing. So you can typeset once with `-shell-escape`, and after that without, or
+As with `epstopdf`, shell escape is only needed to run the converter. Without it
+the package uses the converted files that are already there, and stops with an error
+if one is missing. So you can typeset once with `-shell-escape`, and after that without, or
 send the converted PDFs to a service that doesn't allow shell escape. You can also
 convert by hand:
 
