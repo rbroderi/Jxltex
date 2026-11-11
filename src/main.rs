@@ -292,8 +292,15 @@ fn write_page(
     } else {
         color = samples;
     }
-    if icc.is_none() && colors == 3 && color.chunks_exact(3).all(|p| p[0] == p[1] && p[1] == p[2]) {
-        color = color.chunks_exact(3).map(|p| p[0]).collect();
+    if icc.is_none()
+        && colors == 3
+        && color
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .all(|p| p[0] == p[1] && p[1] == p[2])
+    {
+        color = color.as_chunks::<3>().0.iter().map(|p| p[0]).collect();
         colors = 1;
     }
 

@@ -54,10 +54,10 @@ jobs:
           fi
           echo "Testing release $tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4 # the tests as they were at the release
+      - uses: actions/checkout@v7 # the tests as they were at the release
         with:
           ref: ${{ steps.release.outputs.tag }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.x'
       - name: Download and unpack the release
