@@ -1,0 +1,133 @@
+%% jxl.sty: \includegraphics for JPEG XL files in pdfLaTeX, LuaLaTeX and XeLaTeX.
+%%
+%% None of the engines reads JPEG XL, so this package converts each .jxl file to a PDF
+%% with jxl2pdf (built from jxl2pdf.c, next to this file) the first time it is included
+%% and whenever it changes, and includes the PDF. Running the converter needs
+%% shell escape (-shell-escape); once the converted files exist, it doesn't.
+%%
+%% Part of Jxltex, https://github.com/rbroderi/Jxltex
+%% Copyright (C) 2026 the Jxltex contributors
+%% SPDX-License-Identifier: GPL-3.0-or-later (see LICENSE)
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{jxl}[2026/11/11 v1.0 JPEG XL images in pdfLaTeX, LuaLaTeX and XeLaTeX]
+\RequirePackage{graphicx}
+\RequirePackage{pdftexcmds}
+\RequirePackage{kvoptions}
+
+\SetupKeyvalOptions{family=jxl,prefix=JXL@}
+\DeclareStringOption[jxl2pdf]{converter}
+\DeclareStringOption{outdir}
+\DeclareStringOption[-jxl-converted-to]{suffix}
+\DeclareStringOption{dpi}
+\DeclareBoolOption{allframes}
+\ProcessKeyvalOptions*
+\newcommand*\jxlsetup[1]{\setkeys{jxl}{#1}}
+
+%% Only the drivers that include PDF files directly are supported.
+\def\JXL@temp#1.def#2\@nil{\def\JXL@driver{#1}}
+\expandafter\JXL@temp\Gin@driver.def\@nil
+\@tempswafalse
+\@for\JXL@temp:=pdftex,luatex,xetex\do{\ifx\JXL@temp\JXL@driver\@tempswatrue\fi}
+\if@tempswa\else
+  \PackageWarningNoLine{jxl}{%
+    Graphics driver `\Gin@driver' is not supported.\MessageBreak
+    JPEG XL files need pdfLaTeX or LuaLaTeX in PDF mode,\MessageBreak
+    or XeLaTeX}
+  \expandafter\endinput
+\fi
+
+%% .jxl goes last, so a file in a format the engine reads itself wins when
+%% \includegraphics is given a name with no extension.
+\DeclareGraphicsRule{.jxl}{jxl}{.jxl}{}
+\edef\Gin@extensions{\Gin@extensions,.jxl}
+
+%% \Gin@setfile{type}{read extension}{file} includes a file whose name graphics has
+%% already put in \Gin@base and \Gin@ext. For type jxl, convert, then include the PDF.
+\let\JXL@Gin@setfile\Gin@setfile
+\def\JXL@type{jxl}
+\def\Gin@setfile#1#2#3{%
+  \def\JXL@temp{#1}%
+  \ifx\JXL@temp\JXL@type
+    \expandafter\@firstoftwo
+  \else
+    \expandafter\@secondoftwo
+  \fi
+  {\JXL@include}%
+  {\JXL@Gin@setfile{#1}{#2}{#3}}%
+}
+
+%% \JXL@basename{dir/dir/name} puts name in \JXL@name.
+\def\JXL@basename#1{\expandafter\JXL@strip#1/\@nil}
+\def\JXL@strip#1/#2\@nil{%
+  \def\JXL@name{#1}%
+  \ifx\\#2\\%
+    \expandafter\@gobble
+  \else
+    \expandafter\@firstofone
+  \fi
+  {\JXL@strip#2\@nil}%
+}
+
+\newif\ifJXL@stale
+%% Sets \ifJXL@stale: is \JXL@output missing, or older than \JXL@source?
+\def\JXL@checkstale{%
+  \JXL@stalefalse
+  \IfFileExists{\JXL@output}{%
+    \ifnum\pdf@strcmp{\pdf@filemoddate{\JXL@source}}{\pdf@filemoddate{\JXL@output}}>\z@
+      \JXL@staletrue
+    \fi
+  }{\JXL@staletrue}%
+}
+
+\def\JXL@include{%
+  \edef\JXL@source{\Gin@base\Gin@ext}%
+  \ifx\JXL@outdir\@empty
+    \edef\JXL@outbase{\Gin@base\JXL@suffix}%
+  \else
+    \edef\JXL@temp{\Gin@base}%
+    \JXL@basename\JXL@temp
+    \edef\JXL@outbase{\JXL@outdir/\JXL@name\JXL@suffix}%
+  \fi
+  \edef\JXL@output{\JXL@outbase.pdf}%
+  \JXL@checkstale
+  \ifJXL@stale
+    \edef\JXL@command{%
+      \JXL@converter\space
+      \ifJXL@allframes -a \fi
+      \ifx\JXL@dpi\@empty\else -r \JXL@dpi\space\fi
+      "\JXL@source" "\JXL@output"}%
+    \ifnum\pdf@shellescape=\z@
+      \IfFileExists{\JXL@output}{%
+        \PackageWarning{jxl}{%
+          `\JXL@output' is older than\MessageBreak
+          `\JXL@source', but shell escape is disabled,\MessageBreak
+          so I'm using the old one}%
+      }{%
+        \PackageError{jxl}{%
+          Shell escape is disabled, so I can't convert\MessageBreak
+          `\JXL@source'}{%
+          Run LaTeX with -shell-escape, or do the conversion yourself:\MessageBreak
+          \space\space\JXL@command}%
+      }%
+    \else
+      \PackageInfo{jxl}{Running: \JXL@command\@gobble}%
+      \pdf@system{\JXL@command}%
+      \JXL@checkstale
+      \ifJXL@stale
+        \PackageError{jxl}{%
+          Converting `\JXL@source' failed}{%
+          This command didn't write `\JXL@output':\MessageBreak
+          \space\space\JXL@command\MessageBreak
+          Is \JXL@converter\space on the PATH, and is shell escape unrestricted\MessageBreak
+          (-shell-escape)? Run the command in a terminal to see its message.\MessageBreak
+          jxl2pdf doesn't decode every JPEG XL file.}%
+      \fi
+    \fi
+  \fi
+  %% If the conversion failed, the driver now reports the missing PDF as well.
+  \edef\Gin@base{\JXL@outbase}%
+  \def\Gin@ext{.pdf}%
+  \expandafter\expandafter\expandafter\JXL@Gin@setfile
+    \csname Gin@rule@.pdf\endcsname{\Gin@base\Gin@ext}%
+}
+\endinput

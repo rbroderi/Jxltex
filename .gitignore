@@ -1,0 +1,6 @@
+jxl2pdf
+*.exe
+*.obj
+*.err
+test/out/
+*-jxl-converted-to.pdf

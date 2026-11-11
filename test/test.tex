@@ -1,0 +1,23 @@
+% Typeset with pdflatex, lualatex or xelatex, each with -shell-escape and with jxl2pdf
+% on the PATH. test/run.sh does all three.
+\documentclass{article}
+\usepackage{iftex}
+\usepackage[allframes]{jxl}
+\begin{document}
+\ifPDFTeX pdf\fi\ifLuaTeX Lua\fi\ifXeTeX Xe\fi\LaTeX
+
+\noindent
+\includegraphics[width=5cm]{photo.jxl}\quad
+\includegraphics[width=3cm]{photo}% found by trying extensions
+
+% transparency: the rule shows through
+\noindent
+\rlap{\rule{6cm}{1cm}}\includegraphics[width=4cm]{alpha.jxl}\quad
+\rlap{\rule{3cm}{1cm}}\includegraphics[height=2cm,angle=30]{grey.jxl}
+
+\noindent
+\includegraphics[scale=.4]{flat art.jxl}\quad
+\includegraphics[page=1]{anim.jxl}
+\includegraphics[page=2]{anim.jxl}
+\includegraphics[page=3]{anim.jxl}
+\end{document}
